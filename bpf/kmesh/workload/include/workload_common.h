@@ -13,15 +13,37 @@
 #define BPF_LOGTYPE_SERVICE  BPF_DEBUG_ON
 #define BPF_LOGTYPE_ENDPOINT BPF_DEBUG_ON
 #define BPF_LOGTYPE_BACKEND  BPF_DEBUG_ON
+#define BPF_LOGTYPE_PRIO     BPF_DEBUG_ON
 
 // bpf return value
 #define CGROUP_SOCK_ERR 0
 #define CGROUP_SOCK_OK  1
 
-// loadbalance type
 typedef enum {
     LB_POLICY_RANDOM = 0,
+    LB_POLICY_FAILOVER = 1,
 } lb_policy_t;
+
+typedef enum {
+    HEALTHY = 0,
+    UNHEALTHY = 1,
+} workload_health_status_t;
+
+typedef enum {
+    UNSPECIFIED_SCOPE = 0,
+    REGION = 1,
+    ZONE = 2,
+    SUBZONE = 3,
+    NODE = 4,
+    CLUSTER = 5,
+    NETWORK = 6,
+} locality_loadbalance_scope_t;
+
+typedef enum {
+    UNSPECIFIED_MODE = 0,
+    STRICT = 1,
+    FAILOVER = 2,
+} locality_loadbalance_mode_t;
 
 #pragma pack(1)
 typedef struct {

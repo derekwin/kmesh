@@ -21,7 +21,8 @@ import (
 )
 
 const (
-	MaxPortNum = 10
+	MaxPortNum    = 10
+	MaxScopeCount = 7
 )
 
 type ServiceKey struct {
@@ -33,11 +34,13 @@ type TargetPorts [MaxPortNum]uint32
 
 type ServiceValue struct {
 	EndpointCount uint32       // endpoint count of current service
-	LbPolicy      uint32       // load balancing algorithm, currently only supports random algorithm
+	LbPolicy      uint32       // load balancing algorithm, random : 0 , locality loadbalance : 1
 	ServicePort   ServicePorts // ServicePort[i] and TargetPort[i] are a pair, i starts from 0 and max value is MaxPortNum-1
 	TargetPort    TargetPorts
 	WaypointAddr  [16]byte
 	WaypointPort  uint32
+	LbScope       [MaxScopeCount]uint8
+	LbMode        uint8
 }
 
 func (c *Cache) ServiceUpdate(key *ServiceKey, value *ServiceValue) error {

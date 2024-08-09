@@ -16,6 +16,7 @@ static inline int sock_traffic_control(struct kmesh_context *kmesh_ctx)
     int ret;
     frontend_value *frontend_v = NULL;
     struct bpf_sock_addr *ctx = kmesh_ctx->ctx;
+    frontend_value *source_workload_v = NULL;
 
     if (ctx->protocol != IPPROTO_TCP)
         return 0;
@@ -35,6 +36,22 @@ static inline int sock_traffic_control(struct kmesh_context *kmesh_ctx)
         return -ENOENT;
     }
 
+    // get soruce ip
+    DECLARE_FRONTEND_KEY(ctx, &kmesh_ctx->orig_src_addr, source_workload_k);
+
+    BPF_LOG(
+        DEBUG,
+        KMESH,
+        "source origin addr=[%u:%s:%u]\n",
+        ctx->family,
+        ip2str((__u32 *)&source_workload_k.addr, (ctx->family == AF_INET)), 
+        bpf_ntohs(ctx->user_port));
+
+    source_workload_v = map_lookup_frontend(&source_workload_k); // 用map_lookup_frontend 复用现有的frontend map
+    if (!source_workload_v) {  // 现在查到的是frontend里面的id，肯定是backend
+        return -ENOENT;
+    }
+
     BPF_LOG(
         DEBUG,
         KMESH,
@@ -42,7 +59,7 @@ static inline int sock_traffic_control(struct kmesh_context *kmesh_ctx)
         ctx->family,
         ip2str((__u32 *)&kmesh_ctx->orig_dst_addr, (ctx->family == AF_INET)),
         bpf_ntohs(ctx->user_port));
-    ret = frontend_manager(kmesh_ctx, frontend_v);
+    ret = frontend_manager(kmesh_ctx, frontend_v, source_workload_v);
     if (ret != 0) {
         if (ret != -ENOENT)
             BPF_LOG(ERR, KMESH, "frontend_manager failed, ret:%d\n", ret);
@@ -58,6 +75,7 @@ int cgroup_connect4_prog(struct bpf_sock_addr *ctx)
     struct kmesh_context kmesh_ctx = {0};
     kmesh_ctx.ctx = ctx;
     kmesh_ctx.orig_dst_addr.ip4 = ctx->user_ip4;
+    kmesh_ctx.orig_src_addr.ip4 = ctx->msg_src_ip4;
     kmesh_ctx.dnat_ip.ip4 = ctx->user_ip4;
     kmesh_ctx.dnat_port = ctx->user_port;
 
@@ -88,6 +106,7 @@ int cgroup_connect6_prog(struct bpf_sock_addr *ctx)
     struct kmesh_context kmesh_ctx = {0};
     kmesh_ctx.ctx = ctx;
     IP6_COPY(kmesh_ctx.orig_dst_addr.ip6, ctx->user_ip6);
+    IP6_COPY(kmesh_ctx.orig_src_addr.ip6, ctx->msg_src_ip6);
     IP6_COPY(kmesh_ctx.dnat_ip.ip6, kmesh_ctx.orig_dst_addr.ip6);
     kmesh_ctx.dnat_port = ctx->user_port;
 

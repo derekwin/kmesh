@@ -7,8 +7,15 @@
 #include "config.h"
 
 #define MAX_PORT_COUNT    10
+#define MAX_SCOPE_COUNT   7  // unspecified 0; region 1; zone 2; subzone 3; node 4; cluster 5; network 6
 #define MAX_SERVICE_COUNT 10
 #define RINGBUF_SIZE      (1 << 12)
+
+typedef struct {
+    __u32 region;
+    __u32 zone;
+    __u32 subzone;
+} locality_t;
 
 #pragma pack(1)
 // frontend map
@@ -33,6 +40,8 @@ typedef struct {
     __u32 target_port[MAX_PORT_COUNT];
     struct ip_addr wp_addr;
     __u32 waypoint_port;
+    __u8 balance_scope[MAX_SCOPE_COUNT]; // balance scope 
+    __u8 balance_mode;                   // balance mode: Unspecified_mode 0; strict 1; failover 2
 } service_value;
 
 // endpoint map
@@ -55,7 +64,18 @@ typedef struct {
     __u32 service[MAX_SERVICE_COUNT];
     struct ip_addr wp_addr;
     __u32 waypoint_port;
+    __u8 health_status; // workload_health_status_t: HEALTHY, UNHEALTHY
+    locality_t locality;
 } backend_value;
+
+// prio map
+typedef struct {
+    __u32 rank;
+} prio_key;
+typedef struct {
+    __u32 count; // count of current prio
+    __u32 backend_uid_list[MAP_SIZE_OF_BACKEND]; // workload_uid to uint32
+} prio_value;
 #pragma pack()
 
 struct {
@@ -97,6 +117,14 @@ struct {
     __uint(max_entries, MAP_SIZE_OF_AUTH);
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } map_of_auth SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __type(key, sizeof(prio_key));  // prio
+    __type(value, sizeof(prio_value));  // backend id list
+    __uint(max_entries, MAX_SCOPE_COUNT);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+} map_of_lb_prio SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);

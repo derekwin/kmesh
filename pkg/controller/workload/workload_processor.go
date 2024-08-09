@@ -41,6 +41,7 @@ import (
 
 const (
 	LbPolicyRandom    = 0
+	LbModeLocalityLB  = 1
 	KmeshWaypointPort = 15019 // use this fixed port instead of the HboneMtlsPort in kmesh
 )
 
@@ -55,6 +56,7 @@ type Processor struct {
 	nodeName           string
 	WorkloadCache      cache.WorkloadCache
 	ServiceCache       cache.ServiceCache
+	LocalityCache      cache.LocalityCache
 }
 
 func newProcessor(workloadMap bpf2go.KmeshCgroupSockWorkloadMaps) *Processor {
@@ -65,6 +67,7 @@ func newProcessor(workloadMap bpf2go.KmeshCgroupSockWorkloadMaps) *Processor {
 		nodeName:           os.Getenv("NODE_NAME"),
 		WorkloadCache:      cache.NewWorkloadCache(),
 		ServiceCache:       cache.NewServiceCache(),
+		LocalityCache:      cache.NewLocalityCache(),
 	}
 }
 
@@ -326,7 +329,7 @@ func (p *Processor) storeServiceEndpoint(workload_uid string, serviceName string
 	wls[workload_uid] = struct{}{}
 }
 
-func (p *Processor) storeBackendData(uid uint32, ip []byte, waypoint *workloadapi.GatewayAddress, portList map[string]*workloadapi.PortList) error {
+func (p *Processor) storeBackendData(uid uint32, ip []byte, waypoint *workloadapi.GatewayAddress, portList map[string]*workloadapi.PortList, locality *workloadapi.Locality, status workloadapi.WorkloadStatus) error {
 	var (
 		bk = bpf.BackendKey{}
 		bv = bpf.BackendValue{}
@@ -348,6 +351,13 @@ func (p *Processor) storeBackendData(uid uint32, ip []byte, waypoint *workloadap
 		nets.CopyIpByteFromSlice(&bv.WaypointAddr, waypoint.GetAddress().Address)
 		bv.WaypointPort = nets.ConvertPortToBigEndian(waypoint.GetHboneMtlsPort())
 	}
+
+	// 将对应的locality信息，healthStatus信息传递到bv
+	bv.Locality.Region = p.LocalityCache.GetOrCreateRegion(locality.GetRegion()) // str -> int   region和数字的对应关系， 这个关系映射表需要自动维护，且需要维护在cache？kmesh是否需要考虑重启的情况。
+	bv.Locality.Zone = p.LocalityCache.GetOrCreateZone(locality.GetZone())
+	bv.Locality.Subzone = p.LocalityCache.GetOrCreateSubzone(locality.GetSubzone())
+
+	bv.HealthStatus = uint8(status)
 
 	if err := p.bpf.BackendUpdate(&bk, &bv); err != nil {
 		log.Errorf("Update backend map failed, err:%s", err)
@@ -395,7 +405,7 @@ func (p *Processor) handleDataWithService(workload *workloadapi.Workload) error 
 	}
 
 	for _, ip := range workload.GetAddresses() { // current only support single ip, if a pod have multi ips, the last one will be stored finally
-		if err = p.storeBackendData(backend_uid, ip, workload.GetWaypoint(), workload.GetServices()); err != nil {
+		if err = p.storeBackendData(backend_uid, ip, workload.GetWaypoint(), workload.GetServices(), workload.GetLocality(), workload.GetStatus()); err != nil {
 			log.Errorf("storeBackendData failed, err:%s", err)
 			return err
 		}
@@ -420,6 +430,14 @@ func (p *Processor) handleDataWithoutService(workload *workloadapi.Workload) err
 		}
 
 		bk.BackendUid = uid
+
+		// 将对应的locality信息，healthStatus信息传递到bv
+		locality := workload.GetLocality()
+		bv.Locality.Region = p.LocalityCache.GetOrCreateRegion(locality.GetRegion()) // str -> int
+		bv.Locality.Zone = p.LocalityCache.GetOrCreateZone(locality.GetZone())
+		bv.Locality.Subzone = p.LocalityCache.GetOrCreateSubzone(locality.GetSubzone())
+
+		bv.HealthStatus = uint8(workload.GetStatus())
 
 		nets.CopyIpByteFromSlice(&bv.Ip, ip)
 		if err = p.bpf.BackendUpdate(&bk, &bv); err != nil {
@@ -473,7 +491,7 @@ func (p *Processor) storeServiceFrontendData(serviceId uint32, service *workload
 	return nil
 }
 
-func (p *Processor) storeServiceData(serviceName string, waypoint *workloadapi.GatewayAddress, ports []*workloadapi.Port) error {
+func (p *Processor) storeServiceData(serviceName string, waypoint *workloadapi.GatewayAddress, ports []*workloadapi.Port, lbmode workloadapi.LoadBalancing_Mode, lbscope []workloadapi.LoadBalancing_Scope) error {
 	var (
 		err      error
 		ek       = bpf.EndpointKey{}
@@ -485,7 +503,22 @@ func (p *Processor) storeServiceData(serviceName string, waypoint *workloadapi.G
 	sk.ServiceId = p.hashName.StrToNum(serviceName)
 
 	newValue := bpf.ServiceValue{}
-	newValue.LbPolicy = LbPolicyRandom
+
+	// 将对应的scope，mode信息传递给svUpdate
+	newValue.LbMode = uint8(lbmode)
+	if lbmode == workloadapi.LoadBalancing_UNSPECIFIED_MODE {
+		newValue.LbPolicy = LbPolicyRandom
+	} else {
+		newValue.LbPolicy = LbModeLocalityLB
+	}
+	for i, scope := range lbscope {
+		if i > bpf.MaxScopeCount {
+			log.Warnf("exceed the max scope count,current only support maximum of 7 ports")
+			break
+		}
+		newValue.LbScope[i] = uint8(scope)
+	}
+
 	if waypoint != nil {
 		nets.CopyIpByteFromSlice(&newValue.WaypointAddr, waypoint.GetAddress().Address)
 		newValue.WaypointPort = nets.ConvertPortToBigEndian(waypoint.GetHboneMtlsPort())
@@ -559,7 +592,7 @@ func (p *Processor) handleService(service *workloadapi.Service) error {
 	}
 
 	// get endpoint from ServiceCache, and update service and endpoint map
-	if err := p.storeServiceData(serviceName, service.GetWaypoint(), service.GetPorts()); err != nil {
+	if err := p.storeServiceData(serviceName, service.GetWaypoint(), service.GetPorts(), service.LoadBalancing.GetMode(), service.LoadBalancing.GetRoutingPreference()); err != nil {
 		log.Errorf("storeServiceData failed, err:%s", err)
 		return err
 	}

@@ -56,6 +56,7 @@ struct kmesh_context {
     // input
     struct bpf_sock_addr *ctx;
     struct ip_addr orig_dst_addr;
+    struct ip_addr orig_src_addr;
 
     // output
     struct ip_addr dnat_ip;

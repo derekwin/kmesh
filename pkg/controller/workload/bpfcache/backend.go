@@ -30,12 +30,20 @@ type BackendKey struct {
 
 type ServiceList [MaxServiceNum]uint32
 
+type Locality struct {
+	Region  uint32
+	Zone    uint32
+	Subzone uint32
+}
+
 type BackendValue struct {
 	Ip           [16]byte
 	ServiceCount uint32
 	Services     ServiceList
 	WaypointAddr [16]byte
 	WaypointPort uint32
+	HealthStatus uint8
+	Locality     Locality
 }
 
 func (c *Cache) BackendUpdate(key *BackendKey, value *BackendValue) error {
