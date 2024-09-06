@@ -70,6 +70,17 @@ func NewFakeWorkloadMap(t *testing.T) bpf2go.KmeshCgroupSockWorkloadMaps {
 		t.Fatalf("create serviceMap map failed, err is %v", err)
 	}
 
+	prioMap, err := ebpf.NewMap(&ebpf.MapSpec{
+		Name:       "kmesh_prio",
+		Type:       ebpf.Hash,
+		KeySize:    uint32(unsafe.Sizeof(PrioKey{})),
+		ValueSize:  uint32(unsafe.Sizeof(PrioValue{})),
+		MaxEntries: 1024,
+	})
+	if err != nil {
+		t.Fatalf("create serviceMap map failed, err is %v", err)
+	}
+
 	// TODO: add other maps when needed
 
 	return bpf2go.KmeshCgroupSockWorkloadMaps{
@@ -77,6 +88,7 @@ func NewFakeWorkloadMap(t *testing.T) bpf2go.KmeshCgroupSockWorkloadMaps {
 		KmeshEndpoint: endpointMap,
 		KmeshFrontend: frontendMap,
 		KmeshService:  serviceMap,
+		KmeshPrio:     prioMap,
 	}
 }
 
@@ -85,4 +97,5 @@ func CleanupFakeWorkloadMap(maps bpf2go.KmeshCgroupSockWorkloadMaps) {
 	maps.KmeshEndpoint.Close()
 	maps.KmeshFrontend.Close()
 	maps.KmeshService.Close()
+	maps.KmeshPrio.Close()
 }

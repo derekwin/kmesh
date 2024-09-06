@@ -8,6 +8,7 @@
 
 #define MAX_PORT_COUNT    10
 #define MAX_SERVICE_COUNT 10
+#define MAX_PRIO          7  // 6 means match all scope, 0 means match nothing
 #define RINGBUF_SIZE      (1 << 12)
 
 #pragma pack(1)
@@ -20,6 +21,15 @@ typedef struct {
     __u32 upstream_id; // service id for Service access or backend uid for Pod access
 } frontend_value;
 
+typedef struct {
+    __u32 service_id; // service id
+    __u32 rank; // rank
+} prio_key;
+typedef struct {
+    __u32 count; // count of current prio
+    __u32 uid_list[MAP_SIZE_OF_PRIO]; // workload_uid to backend
+} prio_value;
+
 // service map
 typedef struct {
     __u32 service_id; // service id
@@ -27,7 +37,8 @@ typedef struct {
 
 typedef struct {
     __u32 endpoint_count;               // endpoint count of current service
-    __u32 lb_policy;                    // load balancing algorithm, currently only supports random algorithm
+    __u32 lb_policy;                    // load balancing algorithm, currently supports random algorithm, locality loadbalance Failover/strict mode
+    __u32 lb_strict_index;
     __u32 service_port[MAX_PORT_COUNT]; // service_port[i] and target_port[i] are a pair, i starts from 0 and max value
                                         // is MAX_PORT_COUNT-1
     __u32 target_port[MAX_PORT_COUNT];
@@ -65,6 +76,14 @@ struct {
     __uint(max_entries, MAP_SIZE_OF_FRONTEND);
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } map_of_frontend SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(key_size, sizeof(prio_key));
+    __uint(value_size, sizeof(prio_value));
+    __uint(max_entries, MAP_SIZE_OF_SERVICE*MAX_PRIO);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+} map_of_prio SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);

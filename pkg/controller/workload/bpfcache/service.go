@@ -21,7 +21,8 @@ import (
 )
 
 const (
-	MaxPortNum = 10
+	MaxPortNum       = 10
+	MaxSizeOfBackend = 100000
 )
 
 type ServiceKey struct {
@@ -32,8 +33,9 @@ type ServicePorts [MaxPortNum]uint32
 type TargetPorts [MaxPortNum]uint32
 
 type ServiceValue struct {
-	EndpointCount uint32       // endpoint count of current service
-	LbPolicy      uint32       // load balancing algorithm, currently only supports random algorithm
+	EndpointCount uint32 // endpoint count of current service
+	LbPolicy      uint32 // load balancing algorithm, currently only supports random algorithm
+	LbStrictIndex uint32
 	ServicePort   ServicePorts // ServicePort[i] and TargetPort[i] are a pair, i starts from 0 and max value is MaxPortNum-1
 	TargetPort    TargetPorts
 	WaypointAddr  [16]byte

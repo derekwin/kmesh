@@ -9,11 +9,13 @@
 #define MAP_SIZE_OF_SERVICE  5000
 #define MAP_SIZE_OF_ENDPOINT 105000
 #define MAP_SIZE_OF_BACKEND  100000
+#define MAP_SIZE_OF_PRIO     1000
 #define MAP_SIZE_OF_AUTH     8192
 #define MAP_SIZE_OF_DSTINFO  8192
 
 // map name
 #define map_of_frontend kmesh_frontend
+#define map_of_prio     kmesh_prio
 #define map_of_service  kmesh_service
 #define map_of_endpoint kmesh_endpoint
 #define map_of_backend  kmesh_backend

@@ -40,7 +40,6 @@ import (
 )
 
 const (
-	LbPolicyRandom    = 0
 	KmeshWaypointPort = 15019 // use this fixed port instead of the HboneMtlsPort in kmesh
 )
 
@@ -50,21 +49,35 @@ type Processor struct {
 
 	hashName *HashName
 	// workloads indexer, svc key -> workload id
-	endpointsByService map[string]map[string]struct{}
-	bpf                *bpf.Cache
-	nodeName           string
-	WorkloadCache      cache.WorkloadCache
-	ServiceCache       cache.ServiceCache
+	endpointsByService      map[string]map[string]struct{}
+	backendsByService       map[string]map[string]*workloadapi.Workload
+	bpf                     *bpf.Cache
+	nodeName                string                            // init from env("NODE_NAME")
+	clusterId               string                            // init from workload
+	network                 string                            // init from workload
+	routingPreference       []workloadapi.LoadBalancing_Scope // init from service
+	locality                workloadapi.Locality              // the locality of node, init from workload
+	WorkloadCache           cache.WorkloadCache
+	ServiceCache            cache.ServiceCache
+	is_locality_ok          bool
+	is_routingPreference_ok bool
 }
 
 func newProcessor(workloadMap bpf2go.KmeshCgroupSockWorkloadMaps) *Processor {
 	return &Processor{
-		hashName:           NewHashName(),
-		endpointsByService: make(map[string]map[string]struct{}),
-		bpf:                bpf.NewCache(workloadMap),
-		nodeName:           os.Getenv("NODE_NAME"),
-		WorkloadCache:      cache.NewWorkloadCache(),
-		ServiceCache:       cache.NewServiceCache(),
+		hashName:                NewHashName(),
+		endpointsByService:      make(map[string]map[string]struct{}),
+		backendsByService:       make(map[string]map[string]*workloadapi.Workload),
+		bpf:                     bpf.NewCache(workloadMap),
+		nodeName:                os.Getenv("NODE_NAME"),
+		clusterId:               "",
+		network:                 "",
+		locality:                workloadapi.Locality{},
+		routingPreference:       make([]workloadapi.LoadBalancing_Scope, 0),
+		WorkloadCache:           cache.NewWorkloadCache(),
+		ServiceCache:            cache.NewServiceCache(),
+		is_locality_ok:          false,
+		is_routingPreference_ok: false,
 	}
 }
 
@@ -145,8 +158,12 @@ func (p *Processor) storePodFrontendData(uid uint32, ip []byte) error {
 
 func (p *Processor) removeWorkloadResource(removedResources []string) error {
 	for _, uid := range removedResources {
-		telemetry.DeleteWorkloadMetric(p.WorkloadCache.GetWorkloadByUid(uid))
+		workload := p.WorkloadCache.GetWorkloadByUid(uid)
+		telemetry.DeleteWorkloadMetric(workload)
 		p.WorkloadCache.DeleteWorkload(uid)
+		if workload.GetServices() != nil {
+			p.removeWorkloadFromLocalityLBPrio(workload)
+		}
 		if err := p.removeWorkloadFromBpfMap(uid); err != nil {
 			return err
 		}
@@ -252,6 +269,9 @@ func (p *Processor) removeServiceResource(resources []string) error {
 		p.ServiceCache.DeleteService(name)
 		if err = p.removeServiceResourceFromBpfMap(name); err != nil {
 			return err
+		}
+		for rank := 0; rank < bpf.MaxPrio; rank++ {
+			p.bpf.PrioDelete(&bpf.PrioKey{ServiceId: p.hashName.StrToNum(name), Rank: uint32(rank)})
 		}
 	}
 	return err
@@ -367,6 +387,91 @@ func (p *Processor) storeBackendData(uid uint32, ip []byte, waypoint *workloadap
 	return nil
 }
 
+func (p *Processor) storeBackendByService(serviceName string, backend_uid string, workload *workloadapi.Workload) {
+	if workload == nil {
+		return
+	}
+	wls, ok := p.backendsByService[serviceName]
+	if !ok {
+		p.backendsByService[serviceName] = make(map[string]*workloadapi.Workload)
+		wls = p.backendsByService[serviceName]
+	}
+
+	wls[backend_uid] = workload
+}
+
+func (p *Processor) updateLocalityLBPrio(serviceName string) error {
+	// update locality loadbalance prio list
+	var (
+		rank        uint32 = 0
+		sk                 = bpf.PrioKey{}
+		updateValue        = bpf.PrioValue{}
+	)
+
+	backend_map := p.backendsByService[serviceName] // check all backends
+
+	sk.ServiceId = p.hashName.StrToNum(serviceName)
+	if p.is_locality_ok && p.is_routingPreference_ok { // update locality loadbalance after all configs are ok
+		for backend_id := range backend_map {
+			backend := backend_map[backend_id]
+			rank = 0
+			for scope := range p.routingPreference {
+				switch scope {
+				case int(workloadapi.LoadBalancing_REGION):
+					if backend.GetLocality().GetRegion() != "" && p.locality.Region == backend.GetLocality().GetRegion() {
+						rank++
+					}
+				case int(workloadapi.LoadBalancing_ZONE):
+					if backend.GetLocality().GetZone() != "" && p.locality.Zone == backend.GetLocality().GetZone() {
+						rank++
+					}
+				case int(workloadapi.LoadBalancing_SUBZONE):
+					if backend.GetLocality().GetSubzone() != "" && p.locality.Subzone == backend.GetLocality().GetSubzone() {
+						rank++
+					}
+				case int(workloadapi.LoadBalancing_NODE):
+					if backend.GetNode() != "" && p.nodeName == backend.GetNode() {
+						rank++
+					}
+				case int(workloadapi.LoadBalancing_NETWORK):
+					if backend.GetNetwork() != "" && p.network == backend.GetNetwork() {
+						rank++
+					}
+				case int(workloadapi.LoadBalancing_CLUSTER):
+					if backend.GetClusterId() != "" && p.clusterId == backend.GetClusterId() {
+						rank++
+					}
+				}
+			}
+
+			sk.Rank = rank
+			if updateValue.Count < bpf.MaxSizeOfBackend-1 {
+				updateValue.UidList[updateValue.Count] = p.hashName.StrToNum(backend_id)
+				updateValue.Count++
+				p.bpf.PrioUpdate(&sk, &updateValue)
+			}
+		}
+	}
+	return nil
+}
+
+func (p *Processor) removeWorkloadFromLocalityLBPrio(workload *workloadapi.Workload) error {
+	var (
+		workload_uid = workload.GetUid()
+	)
+
+	for serviceName := range workload.GetServices() {
+		_, exist := p.backendsByService[serviceName][workload_uid]
+		if exist {
+			delete(p.backendsByService[serviceName], workload_uid)
+		}
+
+		p.updateLocalityLBPrio(serviceName)
+	}
+
+	return nil
+}
+
 func (p *Processor) handleDataWithService(workload *workloadapi.Workload) error {
 	var (
 		err error
@@ -445,15 +550,44 @@ func (p *Processor) handleDataWithoutService(workload *workloadapi.Workload) err
 	return nil
 }
 
-func (p *Processor) handleWorkload(workload *workloadapi.Workload) error {
+func (p *Processor) handleWorkload(workload *workloadapi.Workload) error { // 有问题 invalid memory address or nil pointer dereference
+	// panic: assignment to entry in nil map
+
 	log.Debugf("handle workload: %s", workload.Uid)
 	p.WorkloadCache.AddWorkload(workload)
+
+	if p.nodeName == workload.GetNode() { // update locality
+		if workload.GetLocality().GetRegion() != "" {
+			p.locality.Region = workload.GetLocality().GetRegion()
+		}
+		if workload.GetLocality().GetZone() != "" {
+			p.locality.Zone = workload.GetLocality().GetZone()
+		}
+		if workload.GetLocality().GetSubzone() != "" {
+			p.locality.Subzone = workload.GetLocality().GetSubzone()
+		}
+		if workload.GetClusterId() != "" {
+			p.clusterId = workload.GetClusterId()
+		}
+		if workload.GetNetwork() != "" {
+			p.network = workload.GetNetwork()
+		}
+		p.is_locality_ok = true
+	}
 
 	// if have the service name, the workload belongs to a service
 	if workload.GetServices() != nil {
 		if err := p.handleDataWithService(workload); err != nil {
 			log.Errorf("handleDataWithService %s failed: %v", workload.Uid, err)
 			return err
+		}
+		backend_uid := workload.GetUid()
+		for serviceName := range workload.GetServices() { // maintain the relation of the service and backends
+			p.storeBackendByService(serviceName, backend_uid, workload)
+			if err := p.updateLocalityLBPrio(serviceName); err != nil {
+				log.Errorf("handleDataWithService %s failed: %v", workload.Uid, err)
+				return err
+			}
 		}
 	} else { // independent workload without service
 		if err := p.handleDataWithoutService(workload); err != nil {
@@ -483,7 +617,7 @@ func (p *Processor) storeServiceFrontendData(serviceId uint32, service *workload
 	return nil
 }
 
-func (p *Processor) storeServiceData(serviceName string, waypoint *workloadapi.GatewayAddress, ports []*workloadapi.Port) error {
+func (p *Processor) storeServiceData(serviceName string, waypoint *workloadapi.GatewayAddress, ports []*workloadapi.Port, lb *workloadapi.LoadBalancing) error {
 	var (
 		err      error
 		ek       = bpf.EndpointKey{}
@@ -495,7 +629,20 @@ func (p *Processor) storeServiceData(serviceName string, waypoint *workloadapi.G
 	sk.ServiceId = p.hashName.StrToNum(serviceName)
 
 	newValue := bpf.ServiceValue{}
-	newValue.LbPolicy = LbPolicyRandom
+	newValue.LbPolicy = uint32(lb.GetMode()) // Locality loadbalance mode
+	// 手动配置，进行功能测试
+	newValue.LbPolicy = 2 // failover
+
+	if len(lb.GetRoutingPreference()) > 0 { // always update routingPreference
+		p.routingPreference = lb.GetRoutingPreference()
+		newValue.LbStrictIndex = uint32(len(lb.GetRoutingPreference()) - 1)
+		p.is_routingPreference_ok = true
+	}
+
+	// 手动配置，进行功能测试
+	p.routingPreference = []workloadapi.LoadBalancing_Scope{workloadapi.LoadBalancing_REGION, workloadapi.LoadBalancing_ZONE, workloadapi.LoadBalancing_SUBZONE}
+	p.is_routingPreference_ok = true
+
 	if waypoint != nil {
 		nets.CopyIpByteFromSlice(&newValue.WaypointAddr, waypoint.GetAddress().Address)
 		newValue.WaypointPort = nets.ConvertPortToBigEndian(waypoint.GetHboneMtlsPort())
@@ -569,10 +716,17 @@ func (p *Processor) handleService(service *workloadapi.Service) error {
 	}
 
 	// get endpoint from ServiceCache, and update service and endpoint map
-	if err := p.storeServiceData(serviceName, service.GetWaypoint(), service.GetPorts()); err != nil {
+	if err := p.storeServiceData(serviceName, service.GetWaypoint(), service.GetPorts(), service.GetLoadBalancing()); err != nil {
 		log.Errorf("storeServiceData failed, err:%s", err)
 		return err
 	}
+
+	// update service's locality loadbalance prio map
+	if err := p.updateLocalityLBPrio(serviceName); err != nil {
+		log.Errorf("updateLocalityLBPrio service %s failed: %v", serviceName, err)
+		return err
+	}
+
 	return nil
 }
 
