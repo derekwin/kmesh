@@ -1,0 +1,139 @@
+node/c1-worker not labeled
+node/c1-worker not labeled
+node/c1-worker2 not labeled
+node/c1-worker2 not labeled
+node/c1-worker3 not labeled
+node/c1-worker3 not labeled
+destinationrule.networking.istio.io/helloworld created
+serviceaccount/sleep created
+service/sleep created
+deployment.apps/sleep created
+service/helloworld created
+deployment.apps/helloworld-region1.zone1-1 created
+deployment.apps/helloworld-region1.zone1-2 created
+deployment.apps/helloworld-region1.zone2-1 created
+deployment.apps/helloworld-region1.zone2-2 created
+deployment.apps/helloworld-region2.zone3-1 created
+
+################################################
+在sleep-c1-w3（对应region2 zone3）访问api，测试五次:
+NAME                                          READY   STATUS    RESTARTS   AGE   IP            NODE         NOMINATED NODE   READINESS GATES
+helloworld-region1.zone1-1-795f6749bb-thh5q   2/2     Running   0          8s    10.244.1.12   c1-worker    <none>           <none>
+helloworld-region1.zone1-2-56859699fb-ph7ch   2/2     Running   0          7s    10.244.1.13   c1-worker    <none>           <none>
+helloworld-region1.zone2-1-698f765b4b-l2bwt   2/2     Running   0          7s    10.244.2.14   c1-worker2   <none>           <none>
+helloworld-region1.zone2-2-976f4db5b-5zszt    2/2     Running   0          6s    10.244.2.15   c1-worker2   <none>           <none>
+helloworld-region2.zone3-1-77954767bc-dgksx   2/2     Running   0          6s    10.244.3.22   c1-worker3   <none>           <none>
+sleep-55458d4c49-644hp                        2/2     Running   0          8s    10.244.3.21   c1-worker3   <none>           <none>
+Hello version: region2.zone3-1, instance: helloworld-region2.zone3-1-77954767bc-dgksx
+Hello version: region2.zone3-1, instance: helloworld-region2.zone3-1-77954767bc-dgksx
+Hello version: region2.zone3-1, instance: helloworld-region2.zone3-1-77954767bc-dgksx
+Hello version: region2.zone3-1, instance: helloworld-region2.zone3-1-77954767bc-dgksx
+Hello version: region2.zone3-1, instance: helloworld-region2.zone3-1-77954767bc-dgksx
+
+################################################
+向region2 zone3新增一个后端，sleep-c1-w3访问api，测试五次:
+deployment.apps/helloworld-region2.zone3-2 created
+NAME                                          READY   STATUS    RESTARTS   AGE   IP            NODE         NOMINATED NODE   READINESS GATES
+helloworld-region1.zone1-1-795f6749bb-thh5q   2/2     Running   0          16s   10.244.1.12   c1-worker    <none>           <none>
+helloworld-region1.zone1-2-56859699fb-ph7ch   2/2     Running   0          15s   10.244.1.13   c1-worker    <none>           <none>
+helloworld-region1.zone2-1-698f765b4b-l2bwt   2/2     Running   0          15s   10.244.2.14   c1-worker2   <none>           <none>
+helloworld-region1.zone2-2-976f4db5b-5zszt    2/2     Running   0          14s   10.244.2.15   c1-worker2   <none>           <none>
+helloworld-region2.zone3-1-77954767bc-dgksx   2/2     Running   0          14s   10.244.3.22   c1-worker3   <none>           <none>
+helloworld-region2.zone3-2-78bd976d65-jqd27   2/2     Running   0          5s    10.244.3.23   c1-worker3   <none>           <none>
+sleep-55458d4c49-644hp                        2/2     Running   0          16s   10.244.3.21   c1-worker3   <none>           <none>
+Hello version: region2.zone3-1, instance: helloworld-region2.zone3-1-77954767bc-dgksx
+Hello version: region2.zone3-2, instance: helloworld-region2.zone3-2-78bd976d65-jqd27
+Hello version: region2.zone3-1, instance: helloworld-region2.zone3-1-77954767bc-dgksx
+Hello version: region2.zone3-1, instance: helloworld-region2.zone3-1-77954767bc-dgksx
+Hello version: region2.zone3-2, instance: helloworld-region2.zone3-2-78bd976d65-jqd27
+
+################################################
+删掉region2 zone3所有后端，sleep-c1-w3访问api，测试十次:s
+deployment.apps "helloworld-region2.zone3-2" deleted
+deployment.apps "helloworld-region2.zone3-1" deleted
+NAME                                          READY   STATUS        RESTARTS   AGE   IP            NODE         NOMINATED NODE   READINESS GATES
+helloworld-region1.zone1-1-795f6749bb-thh5q   2/2     Running       0          24s   10.244.1.12   c1-worker    <none>           <none>
+helloworld-region1.zone1-2-56859699fb-ph7ch   2/2     Running       0          23s   10.244.1.13   c1-worker    <none>           <none>
+helloworld-region1.zone2-1-698f765b4b-l2bwt   2/2     Running       0          23s   10.244.2.14   c1-worker2   <none>           <none>
+helloworld-region1.zone2-2-976f4db5b-5zszt    2/2     Running       0          22s   10.244.2.15   c1-worker2   <none>           <none>
+helloworld-region2.zone3-1-77954767bc-dgksx   2/2     Terminating   0          22s   10.244.3.22   c1-worker3   <none>           <none>
+helloworld-region2.zone3-2-78bd976d65-jqd27   2/2     Terminating   0          13s   10.244.3.23   c1-worker3   <none>           <none>
+sleep-55458d4c49-644hp                        2/2     Running       0          24s   10.244.3.21   c1-worker3   <none>           <none>
+Hello version: region1.zone1-1, instance: helloworld-region1.zone1-1-795f6749bb-thh5q
+Hello version: region1.zone1-2, instance: helloworld-region1.zone1-2-56859699fb-ph7ch
+Hello version: region1.zone2-1, instance: helloworld-region1.zone2-1-698f765b4b-l2bwt
+Hello version: region1.zone2-2, instance: helloworld-region1.zone2-2-976f4db5b-5zszt
+Hello version: region1.zone1-2, instance: helloworld-region1.zone1-2-56859699fb-ph7ch
+Hello version: region1.zone2-2, instance: helloworld-region1.zone2-2-976f4db5b-5zszt
+Hello version: region1.zone1-1, instance: helloworld-region1.zone1-1-795f6749bb-thh5q
+Hello version: region1.zone1-1, instance: helloworld-region1.zone1-1-795f6749bb-thh5q
+Hello version: region1.zone2-1, instance: helloworld-region1.zone2-1-698f765b4b-l2bwt
+Hello version: region1.zone1-2, instance: helloworld-region1.zone1-2-56859699fb-ph7ch
+
+################################################
+恢复region2 zone3所有后端，sleep-c1-w2访问api，测试五次:
+deployment.apps/helloworld-region2.zone3-2 created
+deployment.apps/helloworld-region2.zone3-1 created
+serviceaccount "sleep" deleted
+service "sleep" deleted
+deployment.apps "sleep" deleted
+serviceaccount/sleep created
+service/sleep created
+deployment.apps/sleep created
+NAME                                          READY   STATUS    RESTARTS   AGE   IP            NODE         NOMINATED NODE   READINESS GATES
+helloworld-region1.zone1-1-795f6749bb-thh5q   2/2     Running   0          36s   10.244.1.12   c1-worker    <none>           <none>
+helloworld-region1.zone1-2-56859699fb-ph7ch   2/2     Running   0          35s   10.244.1.13   c1-worker    <none>           <none>
+helloworld-region1.zone2-1-698f765b4b-l2bwt   2/2     Running   0          35s   10.244.2.14   c1-worker2   <none>           <none>
+helloworld-region1.zone2-2-976f4db5b-5zszt    2/2     Running   0          34s   10.244.2.15   c1-worker2   <none>           <none>
+helloworld-region2.zone3-1-77954767bc-h6dxp   2/2     Running   0          7s    10.244.3.25   c1-worker3   <none>           <none>
+helloworld-region2.zone3-2-78bd976d65-v72lj   2/2     Running   0          7s    10.244.3.24   c1-worker3   <none>           <none>
+sleep-679869777b-jrwq4                        2/2     Running   0          6s    10.244.2.16   c1-worker2   <none>           <none>
+Hello version: region1.zone2-2, instance: helloworld-region1.zone2-2-976f4db5b-5zszt
+Hello version: region1.zone2-1, instance: helloworld-region1.zone2-1-698f765b4b-l2bwt
+Hello version: region1.zone2-1, instance: helloworld-region1.zone2-1-698f765b4b-l2bwt
+Hello version: region1.zone2-2, instance: helloworld-region1.zone2-2-976f4db5b-5zszt
+Hello version: region1.zone2-1, instance: helloworld-region1.zone2-1-698f765b4b-l2bwt
+
+################################################
+删掉region1 zone2所有后端，sleep-c1-w2访问api，测试五次:
+deployment.apps "helloworld-region1.zone2-2" deleted
+deployment.apps "helloworld-region1.zone2-1" deleted
+NAME                                          READY   STATUS        RESTARTS   AGE   IP            NODE         NOMINATED NODE   READINESS GATES
+helloworld-region1.zone1-1-795f6749bb-thh5q   2/2     Running       0          44s   10.244.1.12   c1-worker    <none>           <none>
+helloworld-region1.zone1-2-56859699fb-ph7ch   2/2     Running       0          43s   10.244.1.13   c1-worker    <none>           <none>
+helloworld-region1.zone2-1-698f765b4b-l2bwt   2/2     Terminating   0          43s   10.244.2.14   c1-worker2   <none>           <none>
+helloworld-region1.zone2-2-976f4db5b-5zszt    2/2     Terminating   0          42s   10.244.2.15   c1-worker2   <none>           <none>
+helloworld-region2.zone3-1-77954767bc-h6dxp   2/2     Running       0          15s   10.244.3.25   c1-worker3   <none>           <none>
+helloworld-region2.zone3-2-78bd976d65-v72lj   2/2     Running       0          15s   10.244.3.24   c1-worker3   <none>           <none>
+sleep-679869777b-jrwq4                        2/2     Running       0          14s   10.244.2.16   c1-worker2   <none>           <none>
+Hello version: region1.zone1-2, instance: helloworld-region1.zone1-2-56859699fb-ph7ch
+Hello version: region1.zone1-2, instance: helloworld-region1.zone1-2-56859699fb-ph7ch
+Hello version: region1.zone1-1, instance: helloworld-region1.zone1-1-795f6749bb-thh5q
+Hello version: region1.zone1-1, instance: helloworld-region1.zone1-1-795f6749bb-thh5q
+Hello version: region1.zone1-2, instance: helloworld-region1.zone1-2-56859699fb-ph7ch
+
+################################################
+继续删掉region1 zone1所有后端，sleep-c1-w2访问api，测试五次:
+deployment.apps "helloworld-region1.zone1-2" deleted
+deployment.apps "helloworld-region1.zone1-1" deleted
+NAME                                          READY   STATUS        RESTARTS   AGE   IP            NODE         NOMINATED NODE   READINESS GATES
+helloworld-region1.zone1-1-795f6749bb-thh5q   2/2     Terminating   0          51s   10.244.1.12   c1-worker    <none>           <none>
+helloworld-region1.zone1-2-56859699fb-ph7ch   2/2     Terminating   0          50s   10.244.1.13   c1-worker    <none>           <none>
+helloworld-region2.zone3-1-77954767bc-h6dxp   2/2     Running       0          22s   10.244.3.25   c1-worker3   <none>           <none>
+helloworld-region2.zone3-2-78bd976d65-v72lj   2/2     Running       0          22s   10.244.3.24   c1-worker3   <none>           <none>
+sleep-679869777b-jrwq4                        2/2     Running       0          21s   10.244.2.16   c1-worker2   <none>           <none>
+Hello version: region2.zone3-2, instance: helloworld-region2.zone3-2-78bd976d65-v72lj
+Hello version: region2.zone3-1, instance: helloworld-region2.zone3-1-77954767bc-h6dxp
+Hello version: region2.zone3-2, instance: helloworld-region2.zone3-2-78bd976d65-v72lj
+Hello version: region2.zone3-1, instance: helloworld-region2.zone3-1-77954767bc-h6dxp
+Hello version: region2.zone3-2, instance: helloworld-region2.zone3-2-78bd976d65-v72lj
+
+################################################
+测试完毕，清理
+serviceaccount "sleep" deleted
+service "sleep" deleted
+deployment.apps "sleep" deleted
+destinationrule.networking.istio.io "helloworld" deleted
+service "helloworld" deleted
+deployment.apps "helloworld-region2.zone3-1" deleted
+deployment.apps "helloworld-region2.zone3-2" deleted
