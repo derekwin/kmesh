@@ -1,6 +1,5 @@
 bash labellocality.sh
 
-kubectl apply -f destination.yaml
 kubectl apply -f sleep-c1-w3.yaml
 kubectl apply -f helloworld-srv.yaml
 kubectl apply -f helloworld-region1.zone1-1.yaml
